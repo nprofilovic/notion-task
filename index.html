@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="sr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Notion Taskovi</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+    background: #0f0f0f;
+    color: #f0f0f0;
+    min-height: 100vh;
+    padding: 20px 16px 80px;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+    padding-top: 8px;
+  }
+  header h1 { font-size: 22px; font-weight: 700; }
+  .refresh-btn {
+    background: #2c2c2e;
+    border: none;
+    color: #4da6ff;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 7px 14px;
+    border-radius: 20px;
+    cursor: pointer;
+  }
+
+  /* SUMMARY */
+  .summary {
+    background: #1c1c1e;
+    border-radius: 14px;
+    padding: 14px 16px;
+    margin-bottom: 20px;
+    display: flex;
+    gap: 20px;
+  }
+  .summary-item { text-align: center; flex: 1; }
+  .summary-item .num { font-size: 28px; font-weight: 700; color: #fff; }
+  .summary-item .lbl { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+
+  /* PROJECT FILTER */
+  .filter-label { font-size: 12px; color: #666; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .project-pills {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 12px;
+    margin-bottom: 16px;
+    scrollbar-width: none;
+  }
+  .project-pills::-webkit-scrollbar { display: none; }
+  .pill {
+    background: #1c1c1e;
+    border: 1px solid #2c2c2e;
+    color: #aaa;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 7px 14px;
+    border-radius: 20px;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: all 0.15s;
+    flex-shrink: 0;
+  }
+  .pill.active {
+    background: #4da6ff;
+    border-color: #4da6ff;
+    color: #000;
+    font-weight: 700;
+  }
+
+  /* PROJECT BLOCKS */
+  .project-block { margin-bottom: 20px; background: #1c1c1e; border-radius: 14px; overflow: hidden; }
+  .project-block.hidden { display: none; }
+  .project-header {
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid #2c2c2e;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .project-name { font-size: 15px; font-weight: 600; color: #fff; }
+  .project-count { background: #2c2c2e; color: #aaa; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 20px; }
+
+  /* TASK ITEMS */
+  .task-item {
+    padding: 12px 16px;
+    border-bottom: 1px solid #2c2c2e;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .task-item:last-child { border-bottom: none; }
+  .task-name { flex: 1; font-size: 14px; color: #e5e5e5; line-height: 1.4; }
+  .status-badge { font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 20px; white-space: nowrap; }
+  .status-not-started { background: #2c2c2e; color: #aaa; }
+  .status-in-progress { background: #1a3a5c; color: #4da6ff; }
+  .priority-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .priority-High { background: #ff453a; }
+  .priority-Medium { background: #ff9f0a; }
+  .priority-Low { background: #32d74b; }
+  .priority-none { background: #3a3a3a; }
+
+  /* STATES */
+  .loading { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 50vh; gap: 16px; color: #888; }
+  .spinner { width: 36px; height: 36px; border: 3px solid #2c2c2e; border-top-color: #4da6ff; border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .error { background: #2c1515; border: 1px solid #5c2020; border-radius: 14px; padding: 20px; color: #ff6b6b; font-size: 14px; line-height: 1.6; }
+  .empty { text-align: center; color: #555; padding: 40px 20px; font-size: 15px; }
+  .no-project-label { color: #555; font-style: italic; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>✅ Taskovi</h1>
+  <button class="refresh-btn" onclick="loadTasks()">↻ Osvježi</button>
+</header>
+
+<div id="app">
+  <div class="loading"><div class="spinner"></div><div>Učitavam taskove...</div></div>
+</div>
+
+<script>
+// ⚠️ ZAMENI SA SVOJIM TOKENOM:
+const TOKEN = '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';
+const DB_ID = 'd2623c36f71644989b6a98d4cd836d89';
+
+let allProjects = {}; // id -> name cache
+let activeFilter = 'all';
+
+const statusClass = s => s === 'In Progress' ? 'status-in-progress' : 'status-not-started';
+const statusLabel = s => s === 'In Progress' ? 'U toku' : s === 'Not Started' ? 'Nije početo' : (s || 'Nije početo');
+
+async function fetchProjectName(id) {
+  if (allProjects[id]) return allProjects[id];
+  try {
+    const r = await fetch(`https://api.notion.com/v1/pages/${id}`, {
+      headers: { 'Authorization': `Bearer ${TOKEN}`, 'Notion-Version': '2022-06-28' }
+    });
+    const d = await r.json();
+    const name = d?.properties?.['Project name']?.title?.[0]?.plain_text || 'Nepoznat';
+    allProjects[id] = name;
+    return name;
+  } catch { return 'Nepoznat'; }
+}
+
+function setFilter(projectName) {
+  activeFilter = projectName;
+  document.querySelectorAll('.pill').forEach(p => {
+    p.classList.toggle('active', p.dataset.project === projectName);
+  });
+  document.querySelectorAll('.project-block').forEach(b => {
+    if (projectName === 'all') {
+      b.classList.remove('hidden');
+    } else {
+      b.classList.toggle('hidden', b.dataset.project !== projectName);
+    }
+  });
+}
+
+async function loadTasks() {
+  activeFilter = 'all';
+  allProjects = {};
+  document.getElementById('app').innerHTML = `<div class="loading"><div class="spinner"></div><div>Učitavam taskove...</div></div>`;
+
+  try {
+    const res = await fetch(`https://api.notion.com/v1/databases/${DB_ID}/query`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${TOKEN}`,
+        'Notion-Version': '2022-06-28',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        filter: {
+          and: [
+            { property: 'Status', status: { does_not_equal: 'Done' }},
+            { property: 'Status', status: { does_not_equal: 'Archived' }}
+          ]
+        },
+        sorts: [{ property: 'Status', direction: 'ascending' }],
+        page_size: 100
+      })
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.message || `API greška ${res.status}`);
+
+    const tasks = data.results || [];
+    if (tasks.length === 0) {
+      document.getElementById('app').innerHTML = `<div class="empty">🎉 Nema nezavršenih taskova!</div>`;
+      return;
+    }
+
+    // Prikupi sve project ID-eve i fetch paralelno
+    const projectIds = new Set();
+    tasks.forEach(t => {
+      const proj = t.properties?.Project?.relation || [];
+      if (proj.length > 0) projectIds.add(proj[0].id);
+    });
+    await Promise.all([...projectIds].map(fetchProjectName));
+
+    // Grupiši taskove po projektu
+    const grouped = {}; // projectName -> tasks[]
+    const noProject = [];
+
+    tasks.forEach(t => {
+      const name = t.properties?.['Task name']?.title?.[0]?.plain_text || '(bez naziva)';
+      const status = t.properties?.Status?.status?.name || '';
+      const priority = t.properties?.Priority?.select?.name || null;
+      const proj = t.properties?.Project?.relation || [];
+      const task = { name, status, priority };
+
+      if (proj.length > 0) {
+        const pname = allProjects[proj[0].id] || 'Nepoznat';
+        if (!grouped[pname]) grouped[pname] = [];
+        grouped[pname].push(task);
+      } else {
+        noProject.push(task);
+      }
+    });
+
+    const sortedProjects = Object.keys(grouped).sort((a, b) => a.localeCompare(b, 'sr'));
+    const totalProjects = sortedProjects.length + (noProject.length > 0 ? 1 : 0);
+
+    const renderTask = t => `
+      <div class="task-item">
+        <div class="priority-dot priority-${t.priority || 'none'}"></div>
+        <div class="task-name">${t.name}</div>
+        <span class="status-badge ${statusClass(t.status)}">${statusLabel(t.status)}</span>
+      </div>`;
+
+    // Pills
+    let pillsHtml = `<div class="filter-label">Filtriraj po projektu</div><div class="project-pills">`;
+    pillsHtml += `<div class="pill active" data-project="all" onclick="setFilter('all')">Svi (${tasks.length})</div>`;
+    sortedProjects.forEach(p => {
+      pillsHtml += `<div class="pill" data-project="${p}" onclick="setFilter('${p.replace(/'/g, "\\'")}')">${p} (${grouped[p].length})</div>`;
+    });
+    if (noProject.length > 0) {
+      pillsHtml += `<div class="pill" data-project="__none__" onclick="setFilter('__none__')">Bez projekta (${noProject.length})</div>`;
+    }
+    pillsHtml += `</div>`;
+
+    // Summary
+    let html = `
+      <div class="summary">
+        <div class="summary-item"><div class="num">${tasks.length}</div><div class="lbl">Taskova</div></div>
+        <div class="summary-item"><div class="num">${totalProjects}</div><div class="lbl">Projekata</div></div>
+      </div>
+      ${pillsHtml}`;
+
+    // Project blocks
+    sortedProjects.forEach(p => {
+      html += `
+        <div class="project-block" data-project="${p}">
+          <div class="project-header">
+            <div class="project-name">📁 ${p}</div>
+            <span class="project-count">${grouped[p].length}</span>
+          </div>
+          ${grouped[p].map(renderTask).join('')}
+        </div>`;
+    });
+
+    if (noProject.length > 0) {
+      html += `
+        <div class="project-block" data-project="__none__">
+          <div class="project-header">
+            <div class="project-name no-project-label">Bez projekta</div>
+            <span class="project-count">${noProject.length}</span>
+          </div>
+          ${noProject.map(renderTask).join('')}
+        </div>`;
+    }
+
+    document.getElementById('app').innerHTML = html;
+
+  } catch(e) {
+    document.getElementById('app').innerHTML = `<div class="error">❌ <strong>Greška:</strong><br>${e.message}<br><br>Proveri token i pristup integracije bazi.</div>`;
+  }
+}
+
+loadTasks();
+</script>
+</body>
+</html>
